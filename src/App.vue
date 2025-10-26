@@ -1,26 +1,44 @@
 <template>
-  <img alt="Vue logo" src="./assets/logo.png">
-  <HelloWorld msg="Welcome to Your Vue.js App"/>
+  <div>
+    <h1>Available Lessons</h1>
+
+    <div v-if="loading">Loading lessons...</div>
+    <div v-else-if="lessons.length === 0">No lessons found.</div>
+
+    <ul v-else>
+      <li v-for="lesson in lessons" :key="lesson._id">
+        {{ lesson.subject }} — {{ lesson.location }} — ${{ lesson.price }}
+      </li>
+    </ul>
+  </div>
 </template>
 
 <script>
-import HelloWorld from './components/HelloWorld.vue'
-
 export default {
-  name: 'App',
-  components: {
-    HelloWorld
-  }
-}
+  name: "App",
+  data() {
+    return {
+      lessons: [],
+      loading: true,
+    };
+  },
+  async created() {
+    try {
+      const res = await fetch("http://localhost:3000/lessons");
+      this.lessons = await res.json();
+    } catch (err) {
+      console.error("Error fetching lessons:", err);
+    } finally {
+      this.loading = false;
+    }
+  },
+};
 </script>
 
 <style>
-#app {
-  font-family: Avenir, Helvetica, Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-align: center;
-  color: #2c3e50;
-  margin-top: 60px;
+body {
+  font-family: Arial, sans-serif;
+  margin: 20px;
 }
 </style>
+
