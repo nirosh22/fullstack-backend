@@ -6,65 +6,130 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const uri = "mongodb+srv://niros:nirosh22@fullstack.hfvgjny.mongodb.net/cst3144?retryWrites=true&w=majority&appName=fullstack";
+// ✅ Use env var for Render, fall back to local hard-coded URI
+const uri =
+    process.env.MONGO_URI ||
+    "mongodb+srv://niros:nirosh22@fullstack.hfvgjny.mongodb.net/cst3144?retryWrites=true&w=majority&appName=fullstack";
 
 const client = new MongoClient(uri);
-let lessonsCollection, ordersCollection;
+let db;
 
-async function startServer() {
-  try {
-    await client.connect();
-    const db = client.db("cst3144");
-    lessonsCollection = db.collection("lessons");
-    ordersCollection = db.collection("orders");
-
-    console.log("✅ Connected to MongoDB Atlas & DB ready");
-
-    app.listen(3000, () => console.log("🚀 Server running on port 3000"));
-  } catch (err) {
-    console.error("❌ MongoDB connection error:", err);
-  }
+// ✅ Connect to MongoDB
+async function connectDB() {
+    try {
+        await client.connect();
+        db = client.db("cst3144"); // database name
+        console.log("✅ Connected to MongoDB Atlas & DB ready");
+    } catch (err) {
+        console.error("❌ MongoDB connection error:", err);
+    }
 }
+connectDB();
 
-startServer();
+// ✅ Logger middleware (for marking)
+app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+    next();
+});
 
-// 🟢 Get all lessons
+// ✅ Root route
+app.get("/", (req, res) => {
+    res.send("🏀 Sports Lessons API is running on MongoDB Atlas!");
+});
+
+// ✅ GET all lessons
 app.get("/lessons", async (req, res) => {
-  try {
-    const lessons = await lessonsCollection.find().toArray();
-    res.json(lessons);
-  } catch (err) {
-    res.status(500).json({ message: "Error retrieving lessons", error: err });
-  }
+    try {
+        const lessons = await db.collection("lessons").find().toArray();
+        res.json(lessons);
+    } catch (err) {
+        console.error("Error fetching lessons:", err);
+        res.status(500).json({ error: "Failed to fetch lessons" });
+    }
 });
 
-// 🟡 Save a new order
+// ✅ POST new order (with validation + updating lesson spaces)
 app.post("/orders", async (req, res) => {
-  try {
-    const order = req.body;
-    const result = await ordersCollection.insertOne(order);
-    res.status(201).json({ message: "Order saved", orderId: result.insertedId });
-  } catch (err) {
-    res.status(500).json({ message: "Error saving order", error: err });
-  }
+    try {
+        const { name, phone, lessonIDs } = req.body;
+
+        // Basic validation
+        if (!name || !phone || !lessonIDs || lessonIDs.length === 0) {
+            return res.status(400).json({ error: "Missing required order details" });
+        }
+
+        // Check lessons exist and update spaces
+        const lessonsCollection = db.collection("lessons");
+        for (let id of lessonIDs) {
+            const lessonObjectId = new ObjectId(id);
+            const lesson = await lessonsCollection.findOne({ _id: lessonObjectId });
+
+            if (!lesson || lesson.spaces <= 0) {
+                return res
+                    .status(400)
+                    .json({ error: `Lesson ${id} is full or not found` });
+            }
+
+            await lessonsCollection.updateOne(
+                { _id: lessonObjectId },
+                { $inc: { spaces: -1 } }
+            );
+        }
+
+        // Save order
+        const order = { name, phone, lessonIDs, date: new Date() };
+        const result = await db.collection("orders").insertOne(order);
+
+        res.status(201).json({
+            message: "✅ Order created successfully",
+            orderId: result.insertedId,
+        });
+    } catch (err) {
+        console.error("Error creating order:", err);
+        res.status(500).json({ error: "Failed to create order" });
+    }
 });
 
-// 🔵 Update lesson spaces
+// ✅ GET all orders (optional for admin view or marking)
+app.get("/orders", async (req, res) => {
+    try {
+        const orders = await db.collection("orders").find().toArray();
+        res.json(orders);
+    } catch (err) {
+        console.error("Error fetching orders:", err);
+        res.status(500).json({ error: "Failed to fetch orders" });
+    }
+});
+
+// ✅ PUT update lesson spaces (manual edit route)
 app.put("/lessons/:id", async (req, res) => {
-  try {
-    const id = req.params.id;
-    const { spaces } = req.body;
-    const result = await lessonsCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: { spaces: spaces } }
-    );
-    res.json({ message: "Lesson updated", result });
-  } catch (err) {
-    res.status(500).json({ message: "Error updating lesson", error: err });
-  }
+    try {
+        const lessonId = new ObjectId(req.params.id);
+        const updateData = req.body; // e.g. { spaces: 4 }
+
+        const result = await db.collection("lessons").updateOne(
+            { _id: lessonId },
+            { $set: updateData }
+        );
+
+        if (result.modifiedCount === 0) {
+            return res.status(404).json({ message: "Lesson not found" });
+        }
+
+        res.json({ message: "✅ Lesson updated successfully" });
+    } catch (err) {
+        console.error("Error updating lesson:", err);
+        res.status(500).json({ error: "Failed to update lesson" });
+    }
 });
 
-app.get("/", (req, res) => res.send("Backend working with MongoDB Atlas"));
+// ✅ Serve static files for lesson images (optional)
+app.use("/images", express.static("images"));
 
+// ✅ Start server with Render-compatible port
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+    console.log(`🚀 Server running on port ${port}`);
+});
 
 
